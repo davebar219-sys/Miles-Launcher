@@ -24,9 +24,11 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
-      - name: Restore signing key
-        run: |
-          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > miles-launcher-release.jks
+      - name: Check signing secret
+  run: |
+    echo "Length: ${#SIGNING_KEY}"
+  env:
+    SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
 
       - name: Build signed release APK
         run: |
