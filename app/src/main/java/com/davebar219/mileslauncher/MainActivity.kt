@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3 — blue AI dashboard edition.
+// Miles Launcher V3.0 — blue AI dashboard edition.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -1420,7 +1420,6 @@ class MainActivity : Activity() {
         columnCount = gridColumns
         alignmentMode = GridLayout.ALIGN_BOUNDS
         useDefaultMargins = false
-        gravity = Gravity.CENTER_HORIZONTAL
     }
 
     private fun sectionTitle(): TextView = TextView(this).apply {
