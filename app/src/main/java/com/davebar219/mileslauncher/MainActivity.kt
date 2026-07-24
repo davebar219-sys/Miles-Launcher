@@ -2,6 +2,7 @@ package com.davebar219.mileslauncher
 
 import android.app.Activity
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ResolveInfo
 import android.graphics.Color
 import android.graphics.Typeface
@@ -22,15 +23,34 @@ import android.widget.Toast
 class MainActivity : Activity() {
 
     private var workMode = true
+
     private lateinit var appGrid: GridLayout
+    private lateinit var favoritesGrid: GridLayout
+    private lateinit var favoritesTitle: TextView
     private lateinit var modeTitle: TextView
     private lateinit var workButton: Button
     private lateinit var homeButton: Button
     private lateinit var searchBox: EditText
+    private lateinit var prefs: SharedPreferences
+
     private var allApps: List<ResolveInfo> = emptyList()
+
+    private val workFavorites = mutableSetOf<String>()
+    private val homeFavorites = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        prefs = getSharedPreferences("miles_launcher", MODE_PRIVATE)
+
+        workFavorites.addAll(
+            prefs.getStringSet("work_favorites", emptySet()) ?: emptySet()
+        )
+
+        homeFavorites.addAll(
+            prefs.getStringSet("home_favorites", emptySet()) ?: emptySet()
+        )
+
         allApps = loadLaunchableApps()
         showLauncher()
     }
@@ -52,7 +72,6 @@ class MainActivity : Activity() {
         }
 
         modeTitle = TextView(this).apply {
-            text = "Work mode"
             textSize = 16f
             setTextColor(Color.LTGRAY)
             setPadding(0, dp(4), 0, dp(14))
@@ -81,11 +100,20 @@ class MainActivity : Activity() {
 
         modeRow.addView(
             workButton,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
         )
+
         modeRow.addView(
             homeButton,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
         )
 
         searchBox = EditText(this).apply {
@@ -96,6 +124,7 @@ class MainActivity : Activity() {
             setHintTextColor(Color.GRAY)
             setBackgroundColor(Color.rgb(29, 34, 49))
             setPadding(dp(16), dp(12), dp(16), dp(12))
+
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(
                     text: CharSequence?,
@@ -117,7 +146,31 @@ class MainActivity : Activity() {
             })
         }
 
-        val scrollView = ScrollView(this)
+        favoritesTitle = TextView(this).apply {
+            text = "Favorites"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(8), 0, dp(6))
+        }
+
+        favoritesGrid = GridLayout(this).apply {
+            columnCount = 4
+            alignmentMode = GridLayout.ALIGN_BOUNDS
+            useDefaultMargins = false
+        }
+
+        val allAppsTitle = TextView(this).apply {
+            text = "All apps"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(12), 0, dp(6))
+        }
+
+        val scrollContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
 
         appGrid = GridLayout(this).apply {
             columnCount = 4
@@ -125,7 +178,16 @@ class MainActivity : Activity() {
             useDefaultMargins = false
         }
 
-        scrollView.addView(
+        scrollContent.addView(favoritesTitle)
+        scrollContent.addView(
+            favoritesGrid,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        scrollContent.addView(allAppsTitle)
+        scrollContent.addView(
             appGrid,
             ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -133,9 +195,20 @@ class MainActivity : Activity() {
             )
         )
 
+        val scrollView = ScrollView(this).apply {
+            addView(
+                scrollContent,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
         root.addView(title)
         root.addView(modeTitle)
         root.addView(modeRow)
+
         root.addView(
             searchBox,
             LinearLayout.LayoutParams(
@@ -146,6 +219,7 @@ class MainActivity : Activity() {
                 bottomMargin = dp(12)
             }
         )
+
         root.addView(
             scrollView,
             LinearLayout.LayoutParams(
@@ -157,7 +231,6 @@ class MainActivity : Activity() {
 
         setContentView(root)
         updateMode()
-        renderApps("")
     }
 
     private fun updateMode() {
@@ -169,6 +242,49 @@ class MainActivity : Activity() {
 
         workButton.isEnabled = !workMode
         homeButton.isEnabled = workMode
+
+        renderFavorites()
+        renderApps(searchBox.text?.toString().orEmpty())
+    }
+
+    private fun renderFavorites() {
+        favoritesGrid.removeAllViews()
+
+        val currentFavorites = getCurrentFavorites()
+
+        val favoriteApps = allApps.filter { app ->
+            getAppId(app) in currentFavorites
+        }
+
+        favoritesTitle.text = if (workMode) {
+            "Work favorites"
+        } else {
+            "Home favorites"
+        }
+
+        if (favoriteApps.isEmpty()) {
+            val emptyMessage = TextView(this).apply {
+                text = "Long-press an app below to pin it here."
+                textSize = 14f
+                setTextColor(Color.GRAY)
+                setPadding(0, dp(6), 0, dp(10))
+            }
+
+            favoritesGrid.addView(
+                emptyMessage,
+                GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    columnSpec = GridLayout.spec(0, 4, 1f)
+                }
+            )
+
+            return
+        }
+
+        favoriteApps.forEach { app ->
+            favoritesGrid.addView(createAppTile(app))
+        }
     }
 
     private fun renderApps(query: String) {
@@ -202,6 +318,8 @@ class MainActivity : Activity() {
 
     private fun createAppTile(app: ResolveInfo): LinearLayout {
         val label = app.loadLabel(packageManager).toString()
+        val appId = getAppId(app)
+        val isFavorite = appId in getCurrentFavorites()
 
         val tile = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -209,8 +327,14 @@ class MainActivity : Activity() {
             setPadding(dp(4), dp(8), dp(4), dp(8))
             isClickable = true
             isFocusable = true
+
             setOnClickListener {
                 launchApp(app)
+            }
+
+            setOnLongClickListener {
+                toggleFavorite(app)
+                true
             }
         }
 
@@ -221,7 +345,12 @@ class MainActivity : Activity() {
         }
 
         val name = TextView(this).apply {
-            text = label
+            text = if (isFavorite) {
+                "★ $label"
+            } else {
+                label
+            }
+
             textSize = 11f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -252,6 +381,49 @@ class MainActivity : Activity() {
         return tile
     }
 
+    private fun toggleFavorite(app: ResolveInfo) {
+        val appId = getAppId(app)
+        val label = app.loadLabel(packageManager).toString()
+        val favorites = getCurrentFavorites()
+
+        val message = if (appId in favorites) {
+            favorites.remove(appId)
+            "$label removed from favorites"
+        } else {
+            favorites.add(appId)
+            "$label added to favorites"
+        }
+
+        saveFavorites()
+        renderFavorites()
+        renderApps(searchBox.text?.toString().orEmpty())
+
+        Toast.makeText(
+            this,
+            message,
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun getCurrentFavorites(): MutableSet<String> {
+        return if (workMode) {
+            workFavorites
+        } else {
+            homeFavorites
+        }
+    }
+
+    private fun saveFavorites() {
+        prefs.edit()
+            .putStringSet("work_favorites", HashSet(workFavorites))
+            .putStringSet("home_favorites", HashSet(homeFavorites))
+            .apply()
+    }
+
+    private fun getAppId(app: ResolveInfo): String {
+        return "${app.activityInfo.packageName}/${app.activityInfo.name}"
+    }
+
     private fun launchApp(app: ResolveInfo) {
         val activityInfo = app.activityInfo
 
@@ -272,6 +444,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
 }
