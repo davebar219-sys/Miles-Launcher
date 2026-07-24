@@ -1,9 +1,10 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V2.1 — startup stability and compatibility cleanup.
+// Miles Launcher V3 — blue AI dashboard edition.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
@@ -23,8 +24,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -75,6 +78,11 @@ class MainActivity : Activity() {
     private lateinit var emptyAppsText: TextView
     private lateinit var scrollView: ScrollView
     private lateinit var statusPill: TextView
+    private lateinit var assistantCard: LinearLayout
+    private lateinit var assistantGreeting: TextView
+    private lateinit var assistantStatus: TextView
+    private lateinit var voiceButton: TextView
+    private lateinit var assistantLogo: MilesLogoView
 
     private var allApps: List<ResolveInfo> = emptyList()
     private var workMode = true
@@ -125,9 +133,9 @@ class MainActivity : Activity() {
                 surfaceStrong = Color.rgb(34, 41, 59),
                 textPrimary = Color.rgb(247, 249, 255),
                 textSecondary = Color.rgb(167, 178, 201),
-                accent = if (workMode) Color.rgb(72, 139, 255) else Color.rgb(171, 105, 255),
-                accentStrong = if (workMode) Color.rgb(39, 104, 232) else Color.rgb(132, 61, 222),
-                accentSoft = if (workMode) Color.rgb(29, 52, 88) else Color.rgb(58, 38, 86),
+                accent = if (workMode) Color.rgb(34, 132, 255) else Color.rgb(0, 180, 255),
+                accentStrong = if (workMode) Color.rgb(0, 91, 224) else Color.rgb(0, 120, 224),
+                accentSoft = if (workMode) Color.rgb(18, 49, 88) else Color.rgb(10, 55, 78),
                 border = Color.rgb(48, 57, 78),
                 danger = Color.rgb(244, 100, 120),
                 shadow = Color.argb(90, 0, 0, 0)
@@ -140,9 +148,9 @@ class MainActivity : Activity() {
                 surfaceStrong = Color.rgb(232, 237, 247),
                 textPrimary = Color.rgb(23, 28, 40),
                 textSecondary = Color.rgb(88, 99, 122),
-                accent = if (workMode) Color.rgb(43, 106, 231) else Color.rgb(126, 68, 211),
-                accentStrong = if (workMode) Color.rgb(24, 81, 194) else Color.rgb(94, 43, 174),
-                accentSoft = if (workMode) Color.rgb(219, 232, 255) else Color.rgb(237, 225, 255),
+                accent = if (workMode) Color.rgb(28, 105, 230) else Color.rgb(0, 145, 214),
+                accentStrong = if (workMode) Color.rgb(16, 75, 184) else Color.rgb(0, 103, 174),
+                accentSoft = if (workMode) Color.rgb(217, 233, 255) else Color.rgb(214, 243, 255),
                 border = Color.rgb(213, 220, 234),
                 danger = Color.rgb(197, 49, 72),
                 shadow = Color.argb(25, 20, 28, 45)
@@ -309,10 +317,68 @@ class MainActivity : Activity() {
         topRow.addView(titleColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         topRow.addView(settingsButton, squareParams(46))
 
+        assistantCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(15), dp(14), dp(12), dp(14))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                haptic(this)
+                startVoiceInput()
+            }
+            setOnLongClickListener {
+                haptic(this, strong = true)
+                openChatGpt()
+                true
+            }
+        }
+
+        assistantLogo = MilesLogoView(this).apply {
+            contentDescription = "Miles AI assistant"
+        }
+
+        val assistantText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), 0, dp(8), 0)
+        }
+
+        assistantGreeting = TextView(this).apply {
+            text = "Hey, I'm Miles."
+            textSize = 19f
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
+        }
+
+        assistantStatus = TextView(this).apply {
+            text = "Tap to talk • Hold to open ChatGPT"
+            textSize = 12.5f
+            setPadding(0, dp(4), 0, 0)
+            includeFontPadding = false
+        }
+
+        assistantText.addView(assistantGreeting)
+        assistantText.addView(assistantStatus)
+
+        voiceButton = TextView(this).apply {
+            text = "●"
+            textSize = 26f
+            gravity = Gravity.CENTER
+            contentDescription = "Talk to Miles"
+            setOnClickListener {
+                haptic(this)
+                startVoiceInput()
+            }
+        }
+
+        assistantCard.addView(assistantLogo, squareParams(62))
+        assistantCard.addView(assistantText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        assistantCard.addView(voiceButton, squareParams(50))
+
         val clockRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), dp(13), dp(2), 0)
+            setPadding(dp(2), dp(15), dp(2), 0)
         }
 
         dateText = TextView(this).apply {
@@ -411,6 +477,12 @@ class MainActivity : Activity() {
         searchRow.addView(clearSearchButton, squareParams(42))
 
         headerCard.addView(topRow)
+        headerCard.addView(
+            assistantCard,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(14)
+            }
+        )
         headerCard.addView(clockRow)
         headerCard.addView(
             modeRow,
@@ -539,7 +611,7 @@ class MainActivity : Activity() {
         }
 
         val tagline = TextView(this).apply {
-            text = "Your apps. Your pace."
+            text = "Your AI launcher. Ready when you are."
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(p.textSecondary)
@@ -589,7 +661,10 @@ class MainActivity : Activity() {
                 .scaleX(1.04f)
                 .scaleY(1.04f)
                 .setDuration(380L)
-                .withEndAction { rootFrame.removeView(splash) }
+                .withEndAction {
+                    rootFrame.removeView(splash)
+                    animateAssistantEntrance()
+                }
                 .start()
         }, 1_250L)
     }
@@ -598,6 +673,38 @@ class MainActivity : Activity() {
         launcherRoot.alpha = 1f
         launcherRoot.scaleX = 1f
         launcherRoot.scaleY = 1f
+        animateAssistantEntrance()
+    }
+
+    private fun animateAssistantEntrance() {
+        if (!::assistantCard.isInitialized) return
+        assistantCard.alpha = 0f
+        assistantCard.translationY = dp(12).toFloat()
+        assistantCard.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(420L)
+            .start()
+        assistantLogo.animate()
+            .rotationBy(360f)
+            .setDuration(850L)
+            .start()
+        pulseVoiceButton()
+    }
+
+    private fun pulseVoiceButton() {
+        if (!::voiceButton.isInitialized) return
+        ValueAnimator.ofFloat(1f, 1.12f, 1f).apply {
+            duration = 1500L
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Float
+                voiceButton.scaleX = value
+                voiceButton.scaleY = value
+                voiceButton.alpha = 0.72f + (value - 1f) * 1.8f
+            }
+            start()
+        }
     }
 
     private fun switchMode(toWorkMode: Boolean) {
@@ -626,6 +733,12 @@ class MainActivity : Activity() {
         contentCard.background = roundedDrawable(p.surface, 26, p.border, 1)
 
         logoView.setAccentColors(p.accent, p.accentStrong)
+        assistantLogo.setAccentColors(p.accent, p.accentStrong)
+        assistantCard.background = roundedDrawable(p.surfaceRaised, 22, p.accent, 1)
+        assistantGreeting.setTextColor(p.textPrimary)
+        assistantStatus.setTextColor(p.textSecondary)
+        voiceButton.setTextColor(p.accent)
+        voiceButton.background = roundedDrawable(p.accentSoft, 25, p.accent, 1)
         modeTitle.setTextColor(p.textPrimary)
         modeSubtitle.setTextColor(p.textSecondary)
         dateText.setTextColor(p.textSecondary)
@@ -657,9 +770,9 @@ class MainActivity : Activity() {
     private fun updateModeHeader() {
         modeTitle.text = if (workMode) "Miles · Work" else "Miles · Home"
         modeSubtitle.text = if (workMode) {
-            "Focused apps, fewer distractions"
+            "Focus mode • Miles is ready"
         } else {
-            "Your personal space"
+            "Your personal space • Miles is ready"
         }
 
         val visibleCount = getVisibleApps("").size
@@ -801,6 +914,7 @@ class MainActivity : Activity() {
                 textSize = labelSizeSp
                 gravity = Gravity.CENTER
                 maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
                 setTextColor(p.textPrimary)
                 setPadding(dp(2), dp(if (compactMode) 4 else 7), dp(2), 0)
                 includeFontPadding = false
@@ -835,8 +949,8 @@ class MainActivity : Activity() {
 
         val spacing = dp(4)
         val screenWidth = resources.displayMetrics.widthPixels
-        val availableWidth = screenWidth - dp(54)
-        val cellWidth = (availableWidth / gridColumns).coerceAtLeast(dp(70))
+        val availableWidth = screenWidth - dp(84)
+        val cellWidth = (availableWidth / gridColumns).coerceAtLeast(dp(68))
         return tile.apply {
             layoutParams = GridLayout.LayoutParams().apply {
                 width = cellWidth
@@ -1114,6 +1228,107 @@ class MainActivity : Activity() {
         saveCollections()
     }
 
+    private fun startVoiceInput() {
+        assistantStatus.text = "Listening…"
+        assistantLogo.animate().rotationBy(180f).setDuration(420L).start()
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Talk to Miles")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+        }
+        try {
+            startActivityForResult(intent, REQUEST_VOICE)
+        } catch (_: ActivityNotFoundException) {
+            assistantStatus.text = "Voice recognition isn't available on this phone."
+            Toast.makeText(this, "Voice recognition isn't available.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_VOICE) return
+        if (resultCode != RESULT_OK) {
+            assistantStatus.text = "Tap to talk • Hold to open ChatGPT"
+            return
+        }
+        val heard = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+        if (heard.isBlank()) {
+            assistantStatus.text = "I didn't catch that. Tap and try again."
+            return
+        }
+        assistantGreeting.text = "You said: “$heard”"
+        handleMilesCommand(heard)
+    }
+
+    private fun handleMilesCommand(spoken: String) {
+        val command = spoken.trim().lowercase(Locale.getDefault())
+        when {
+            command == "hey miles" || command == "miles" -> {
+                assistantGreeting.text = "I'm here."
+                assistantStatus.text = "Try “open YouTube” or “switch to Work.”"
+            }
+            command.contains("work mode") || command == "work" || command.contains("switch to work") -> {
+                switchMode(true)
+                assistantGreeting.text = "Work mode is ready."
+                assistantStatus.text = "Focused apps, fewer distractions."
+            }
+            command.contains("home mode") || command == "home" || command.contains("switch to home") -> {
+                switchMode(false)
+                assistantGreeting.text = "Home mode is ready."
+                assistantStatus.text = "Your personal space is open."
+            }
+            command.startsWith("open ") || command.startsWith("launch ") -> {
+                val requested = command.substringAfter(' ').trim()
+                val match = allApps.firstOrNull {
+                    appLabel(it).lowercase(Locale.getDefault()).contains(requested) ||
+                        it.activityInfo.packageName.lowercase(Locale.getDefault()).contains(requested.replace(" ", ""))
+                }
+                if (match != null) {
+                    assistantGreeting.text = "Opening ${appLabel(match)}."
+                    assistantStatus.text = "On it."
+                    launchApp(match)
+                } else {
+                    assistantGreeting.text = "I couldn't find “$requested.”"
+                    assistantStatus.text = "I've placed it in app search."
+                    searchBox.setText(requested)
+                    searchBox.requestFocus()
+                }
+            }
+            command.startsWith("search ") || command.startsWith("find ") -> {
+                val query = command.substringAfter(' ').trim()
+                searchBox.setText(query)
+                searchBox.requestFocus()
+                assistantGreeting.text = "Searching for “$query.”"
+                assistantStatus.text = "Results are below."
+            }
+            command.contains("chatgpt") || command.contains("ask miles") -> openChatGpt()
+            else -> {
+                assistantGreeting.text = "I heard you."
+                assistantStatus.text = "Opening ChatGPT for the full conversation."
+                openChatGpt(spoken)
+            }
+        }
+    }
+
+    private fun openChatGpt(initialPrompt: String? = null) {
+        val appIntent = packageManager.getLaunchIntentForPackage("com.openai.chatgpt")
+        if (appIntent != null) {
+            startActivity(appIntent)
+            return
+        }
+        val url = if (initialPrompt.isNullOrBlank()) {
+            "https://chatgpt.com/"
+        } else {
+            "https://chatgpt.com/?q=" + Uri.encode(initialPrompt)
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Unable to open ChatGPT.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun openAppDetails(app: ResolveInfo) {
         try {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -1205,6 +1420,7 @@ class MainActivity : Activity() {
         columnCount = gridColumns
         alignmentMode = GridLayout.ALIGN_BOUNDS
         useDefaultMargins = false
+        gravity = Gravity.CENTER_HORIZONTAL
     }
 
     private fun sectionTitle(): TextView = TextView(this).apply {
@@ -1273,6 +1489,7 @@ class MainActivity : Activity() {
         private const val SORT_ALPHABETICAL = 0
         private const val SORT_REVERSE = 1
         private const val SORT_FAVORITES_FIRST = 2
+        private const val REQUEST_VOICE = 7301
     }
 }
 
@@ -1294,8 +1511,8 @@ class MilesLogoView(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
 
-    private var accent = Color.rgb(72, 139, 255)
-    private var accentStrong = Color.rgb(39, 104, 232)
+    private var accent = Color.rgb(34, 132, 255)
+    private var accentStrong = Color.rgb(0, 91, 224)
 
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
