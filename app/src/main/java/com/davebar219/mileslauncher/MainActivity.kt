@@ -2,147 +2,168 @@ package com.davebar219.mileslauncher
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ResolveInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
-import android.provider.Settings
 import android.view.Gravity
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
 
-    private lateinit var root: LinearLayout
-    private var workMode = true
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        render()
+        showLauncher()
     }
 
-    private fun render() {
-        root = LinearLayout(this).apply {
+    private fun showLauncher() {
+        val background = Color.rgb(15, 18, 28)
+
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(48), dp(24), dp(24))
-            setBackgroundColor(Color.rgb(15, 18, 28))
+            setPadding(dp(20), dp(42), dp(20), dp(20))
+            setBackgroundColor(background)
         }
 
         val title = TextView(this).apply {
-            text = if (workMode) "Good morning, Dave." else "Welcome home, Dave."
-            textSize = 29f
+            text = "Miles Launcher"
+            textSize = 28f
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
         }
 
         val subtitle = TextView(this).apply {
-            text = if (workMode) {
-                "Work mode is active. What should we focus on?"
-            } else {
-                "Home mode is active. Time to breathe a little."
-            }
+            text = "Your apps"
             textSize = 16f
             setTextColor(Color.LTGRAY)
-            setPadding(0, dp(8), 0, dp(24))
+            setPadding(0, dp(6), 0, dp(18))
         }
 
-        val modeButton = Button(this).apply {
-            text = if (workMode) "Switch to Home" else "Switch to Work"
-            setOnClickListener {
-                workMode = !workMode
-                render()
-            }
+        val scrollView = ScrollView(this)
+
+        val appGrid = GridLayout(this).apply {
+            columnCount = 4
+            alignmentMode = GridLayout.ALIGN_BOUNDS
+            useDefaultMargins = false
         }
 
-        val askMiles = Button(this).apply {
-            text = "Ask Miles"
-            setOnClickListener {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Miles conversation panel is coming next.",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+        loadLaunchableApps().forEach { app ->
+            appGrid.addView(createAppTile(app))
         }
 
-        val grid = GridLayout(this).apply {
-            columnCount = 2
-            rowCount = 2
-            setPadding(0, dp(28), 0, 0)
-        }
-
-        val actions = if (workMode) {
-            listOf(
-                "Calendar" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR),
-                "Email" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_EMAIL),
-                "Tasks" to null,
-                "Settings" to Intent(Settings.ACTION_SETTINGS)
+        scrollView.addView(
+            appGrid,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
-        } else {
-            listOf(
-                "Camera" to Intent("android.media.action.IMAGE_CAPTURE"),
-                "Music" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC),
-                "Family" to null,
-                "Settings" to Intent(Settings.ACTION_SETTINGS)
-            )
-        }
-
-        actions.forEach { (label, intent) ->
-            grid.addView(actionButton(label, intent))
-        }
+        )
 
         root.addView(title)
         root.addView(subtitle)
-        root.addView(modeButton, fullWidth())
-        root.addView(askMiles, fullWidth())
-        root.addView(grid, fullWidth())
+        root.addView(
+            scrollView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
 
         setContentView(root)
     }
 
-    private fun actionButton(label: String, intent: Intent?): Button =
-        Button(this).apply {
-            text = label
-            textSize = 16f
-            setOnClickListener {
-                if (intent == null) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "$label will be connected in the next version.",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    return@setOnClickListener
-                }
+    private fun loadLaunchableApps(): List<ResolveInfo> {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
 
-                try {
-                    startActivity(intent)
-                } catch (_: Exception) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "No compatible app was found.",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+        return packageManager
+            .queryIntentActivities(launcherIntent, 0)
+            .filter { it.activityInfo.packageName != packageName }
+            .sortedBy {
+                it.loadLabel(packageManager)
+                    .toString()
+                    .lowercase()
             }
+    }
 
-            val margin = dp(8)
-            layoutParams = GridLayout.LayoutParams().apply {
-                width = 0
-                height = dp(92)
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(margin, margin, margin, margin)
+    private fun createAppTile(app: ResolveInfo): LinearLayout {
+        val label = app.loadLabel(packageManager).toString()
+
+        val tile = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(10), dp(6), dp(10))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                launchApp(app)
             }
         }
 
-    private fun fullWidth() = LinearLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        ViewGroup.LayoutParams.WRAP_CONTENT
-    ).apply {
-        topMargin = dp(10)
+        val icon = ImageView(this).apply {
+            setImageDrawable(app.loadIcon(packageManager))
+            contentDescription = label
+            adjustViewBounds = true
+        }
+
+        val name = TextView(this).apply {
+            text = label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            maxLines = 2
+            setPadding(0, dp(6), 0, 0)
+        }
+
+        tile.addView(
+            icon,
+            LinearLayout.LayoutParams(dp(52), dp(52))
+        )
+
+        tile.addView(
+            name,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        tile.layoutParams = GridLayout.LayoutParams().apply {
+            width = 0
+            height = dp(106)
+            columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            setMargins(dp(3), dp(3), dp(3), dp(3))
+        }
+
+        return tile
+    }
+
+    private fun launchApp(app: ResolveInfo) {
+        val activityInfo = app.activityInfo
+
+        val launchIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            setClassName(activityInfo.packageName, activityInfo.name)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        try {
+            startActivity(launchIntent)
+        } catch (_: Exception) {
+            Toast.makeText(
+                this,
+                "Unable to open this app.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun dp(value: Int): Int =
