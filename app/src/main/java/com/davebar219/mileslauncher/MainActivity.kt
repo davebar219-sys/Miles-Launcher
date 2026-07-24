@@ -1035,7 +1035,7 @@ class MainActivity : Activity() {
     private fun chooseLabelSize() {
         val values = floatArrayOf(9f, 11f, 12f, 14f)
         val labels = arrayOf("Small", "Medium", "Large", "Extra large")
-        val checked = values.indexOf(labelSizeSp).coerceAtLeast(0)
+        val checked = values.indexOfFirst { it == labelSizeSp }.coerceAtLeast(0)
         AlertDialog.Builder(this)
             .setTitle("Label size")
             .setSingleChoiceItems(labels, checked) { dialog, which ->
