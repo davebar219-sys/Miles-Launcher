@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -24,11 +24,20 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
-      - name: Build debug APK
-        run: gradle assembleDebug
+      - name: Restore signing key
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > miles-launcher-release.jks
 
-      - name: Upload APK
+      - name: Build signed release APK
+        run: |
+          gradle assembleRelease \
+            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/miles-launcher-release.jks" \
+            -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
+
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: miles-launcher-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: miles-launcher-release
+          path: app/build/outputs/apk/release/app-release.apk

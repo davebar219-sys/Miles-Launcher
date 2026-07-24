@@ -29,3 +29,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+
+# Android signing files
+*.jks
+*.base64
