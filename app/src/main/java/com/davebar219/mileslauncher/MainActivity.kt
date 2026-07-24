@@ -1,6 +1,7 @@
 package com.davebar219.mileslauncher
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ResolveInfo
@@ -30,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var modeTitle: TextView
     private lateinit var workButton: Button
     private lateinit var homeButton: Button
+    private lateinit var manageHiddenButton: Button
     private lateinit var searchBox: EditText
     private lateinit var prefs: SharedPreferences
 
@@ -37,6 +39,8 @@ class MainActivity : Activity() {
 
     private val workFavorites = mutableSetOf<String>()
     private val homeFavorites = mutableSetOf<String>()
+    private val workHidden = mutableSetOf<String>()
+    private val homeHidden = mutableSetOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,9 +50,14 @@ class MainActivity : Activity() {
         workFavorites.addAll(
             prefs.getStringSet("work_favorites", emptySet()) ?: emptySet()
         )
-
         homeFavorites.addAll(
             prefs.getStringSet("home_favorites", emptySet()) ?: emptySet()
+        )
+        workHidden.addAll(
+            prefs.getStringSet("work_hidden", emptySet()) ?: emptySet()
+        )
+        homeHidden.addAll(
+            prefs.getStringSet("home_hidden", emptySet()) ?: emptySet()
         )
 
         allApps = loadLaunchableApps()
@@ -100,24 +109,15 @@ class MainActivity : Activity() {
 
         modeRow.addView(
             workButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f
-            )
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
-
         modeRow.addView(
             homeButton,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f
-            )
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         )
 
         searchBox = EditText(this).apply {
-            hint = "Search apps"
+            hint = "Search visible apps"
             textSize = 16f
             setSingleLine(true)
             setTextColor(Color.WHITE)
@@ -146,8 +146,14 @@ class MainActivity : Activity() {
             })
         }
 
+        manageHiddenButton = Button(this).apply {
+            text = "Manage hidden apps"
+            setOnClickListener {
+                showHiddenAppsDialog()
+            }
+        }
+
         favoritesTitle = TextView(this).apply {
-            text = "Favorites"
             textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
@@ -161,7 +167,7 @@ class MainActivity : Activity() {
         }
 
         val allAppsTitle = TextView(this).apply {
-            text = "All apps"
+            text = "Visible apps"
             textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
@@ -179,30 +185,12 @@ class MainActivity : Activity() {
         }
 
         scrollContent.addView(favoritesTitle)
-        scrollContent.addView(
-            favoritesGrid,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
+        scrollContent.addView(favoritesGrid)
         scrollContent.addView(allAppsTitle)
-        scrollContent.addView(
-            appGrid,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
+        scrollContent.addView(appGrid)
 
         val scrollView = ScrollView(this).apply {
-            addView(
-                scrollContent,
-                ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
+            addView(scrollContent)
         }
 
         root.addView(title)
@@ -216,7 +204,17 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 topMargin = dp(12)
-                bottomMargin = dp(12)
+                bottomMargin = dp(8)
+            }
+        )
+
+        root.addView(
+            manageHiddenButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(8)
             }
         )
 
@@ -251,9 +249,11 @@ class MainActivity : Activity() {
         favoritesGrid.removeAllViews()
 
         val currentFavorites = getCurrentFavorites()
+        val currentHidden = getCurrentHidden()
 
         val favoriteApps = allApps.filter { app ->
-            getAppId(app) in currentFavorites
+            val appId = getAppId(app)
+            appId in currentFavorites && appId !in currentHidden
         }
 
         favoritesTitle.text = if (workMode) {
@@ -278,7 +278,6 @@ class MainActivity : Activity() {
                     columnSpec = GridLayout.spec(0, 4, 1f)
                 }
             )
-
             return
         }
 
@@ -290,30 +289,19 @@ class MainActivity : Activity() {
     private fun renderApps(query: String) {
         appGrid.removeAllViews()
 
+        val currentHidden = getCurrentHidden()
+
         val filteredApps = allApps.filter { app ->
-            app.loadLabel(packageManager)
-                .toString()
-                .contains(query, ignoreCase = true)
+            val appId = getAppId(app)
+            appId !in currentHidden &&
+                app.loadLabel(packageManager)
+                    .toString()
+                    .contains(query, ignoreCase = true)
         }
 
         filteredApps.forEach { app ->
             appGrid.addView(createAppTile(app))
         }
-    }
-
-    private fun loadLaunchableApps(): List<ResolveInfo> {
-        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-
-        return packageManager
-            .queryIntentActivities(launcherIntent, 0)
-            .filter { it.activityInfo.packageName != packageName }
-            .sortedBy {
-                it.loadLabel(packageManager)
-                    .toString()
-                    .lowercase()
-            }
     }
 
     private fun createAppTile(app: ResolveInfo): LinearLayout {
@@ -333,7 +321,7 @@ class MainActivity : Activity() {
             }
 
             setOnLongClickListener {
-                toggleFavorite(app)
+                showAppActions(app)
                 true
             }
         }
@@ -345,12 +333,7 @@ class MainActivity : Activity() {
         }
 
         val name = TextView(this).apply {
-            text = if (isFavorite) {
-                "★ $label"
-            } else {
-                label
-            }
-
+            text = if (isFavorite) "★ $label" else label
             textSize = 11f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -358,11 +341,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         }
 
-        tile.addView(
-            icon,
-            LinearLayout.LayoutParams(dp(54), dp(54))
-        )
-
+        tile.addView(icon, LinearLayout.LayoutParams(dp(54), dp(54)))
         tile.addView(
             name,
             LinearLayout.LayoutParams(
@@ -381,6 +360,35 @@ class MainActivity : Activity() {
         return tile
     }
 
+    private fun showAppActions(app: ResolveInfo) {
+        val label = app.loadLabel(packageManager).toString()
+        val appId = getAppId(app)
+        val favorites = getCurrentFavorites()
+
+        val favoriteAction = if (appId in favorites) {
+            "Remove from favorites"
+        } else {
+            "Add to favorites"
+        }
+
+        val options = arrayOf(
+            favoriteAction,
+            "Hide in this mode",
+            "Cancel"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle(label)
+            .setItems(options) { dialog, which ->
+                when (which) {
+                    0 -> toggleFavorite(app)
+                    1 -> hideApp(app)
+                    else -> dialog.dismiss()
+                }
+            }
+            .show()
+    }
+
     private fun toggleFavorite(app: ResolveInfo) {
         val appId = getAppId(app)
         val label = app.loadLabel(packageManager).toString()
@@ -394,30 +402,105 @@ class MainActivity : Activity() {
             "$label added to favorites"
         }
 
-        saveFavorites()
-        renderFavorites()
-        renderApps(searchBox.text?.toString().orEmpty())
+        savePreferences()
+        refreshCurrentMode()
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun hideApp(app: ResolveInfo) {
+        val appId = getAppId(app)
+        val label = app.loadLabel(packageManager).toString()
+
+        getCurrentHidden().add(appId)
+        getCurrentFavorites().remove(appId)
+
+        savePreferences()
+        refreshCurrentMode()
 
         Toast.makeText(
             this,
-            message,
+            "$label hidden in ${currentModeName()} mode",
             Toast.LENGTH_SHORT
         ).show()
     }
 
-    private fun getCurrentFavorites(): MutableSet<String> {
-        return if (workMode) {
-            workFavorites
-        } else {
-            homeFavorites
+    private fun showHiddenAppsDialog() {
+        val hidden = getCurrentHidden()
+
+        val hiddenApps = allApps.filter { app ->
+            getAppId(app) in hidden
         }
+
+        if (hiddenApps.isEmpty()) {
+            Toast.makeText(
+                this,
+                "No hidden apps in ${currentModeName()} mode.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val labels = hiddenApps
+            .map { it.loadLabel(packageManager).toString() }
+            .toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("${currentModeName()} hidden apps")
+            .setItems(labels) { _, which ->
+                val app = hiddenApps[which]
+                hidden.remove(getAppId(app))
+                savePreferences()
+                refreshCurrentMode()
+
+                Toast.makeText(
+                    this,
+                    "${labels[which]} is visible again",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
-    private fun saveFavorites() {
+    private fun refreshCurrentMode() {
+        renderFavorites()
+        renderApps(searchBox.text?.toString().orEmpty())
+    }
+
+    private fun getCurrentFavorites(): MutableSet<String> {
+        return if (workMode) workFavorites else homeFavorites
+    }
+
+    private fun getCurrentHidden(): MutableSet<String> {
+        return if (workMode) workHidden else homeHidden
+    }
+
+    private fun currentModeName(): String {
+        return if (workMode) "Work" else "Home"
+    }
+
+    private fun savePreferences() {
         prefs.edit()
             .putStringSet("work_favorites", HashSet(workFavorites))
             .putStringSet("home_favorites", HashSet(homeFavorites))
+            .putStringSet("work_hidden", HashSet(workHidden))
+            .putStringSet("home_hidden", HashSet(homeHidden))
             .apply()
+    }
+
+    private fun loadLaunchableApps(): List<ResolveInfo> {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+
+        return packageManager
+            .queryIntentActivities(launcherIntent, 0)
+            .filter { it.activityInfo.packageName != packageName }
+            .sortedBy {
+                it.loadLabel(packageManager)
+                    .toString()
+                    .lowercase()
+            }
     }
 
     private fun getAppId(app: ResolveInfo): String {
