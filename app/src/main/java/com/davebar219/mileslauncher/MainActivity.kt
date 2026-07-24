@@ -1,5 +1,7 @@
 package com.davebar219.mileslauncher
 
+// Miles Launcher V2.1 — startup stability and compatibility cleanup.
+
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.app.Activity
@@ -152,7 +154,6 @@ class MainActivity : Activity() {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         loadPreferences()
-        configureSystemBars()
         allApps = loadLaunchableApps()
         buildUi()
         refreshEverything(animate = false)
@@ -190,25 +191,37 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun scheduleSystemBarUpdate() {
+        if (!::rootFrame.isInitialized) return
+        rootFrame.post { configureSystemBars() }
+    }
+
     private fun configureSystemBars() {
+        val navColor = if (darkTheme) Color.rgb(8, 11, 18) else Color.rgb(239, 244, 252)
         window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = if (darkTheme) Color.rgb(8, 11, 18) else Color.rgb(239, 244, 252)
+        window.navigationBarColor = navColor
+
+        val decorView = window.decorView
+        if (!decorView.isAttachedToWindow) {
+            decorView.post { configureSystemBars() }
+            return
+        }
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(true)
-            window.insetsController?.let { controller ->
-                var appearance = 0
-                if (!darkTheme) {
-                    appearance = appearance or WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                    appearance = appearance or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                }
-                controller.setSystemBarsAppearance(
-                    appearance,
-                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                )
+            val controller = decorView.windowInsetsController ?: return
+            val lightAppearance = if (darkTheme) {
+                0
+            } else {
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
             }
+            val appearanceMask =
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            controller.setSystemBarsAppearance(lightAppearance, appearanceMask)
         } else {
-            window.decorView.systemUiVisibility = if (darkTheme) {
+            decorView.systemUiVisibility = if (darkTheme) {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             } else {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
@@ -598,8 +611,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshEverything(animate: Boolean) {
-        configureSystemBars()
         applyTheme()
+        scheduleSystemBarUpdate()
         updateModeHeader()
         renderFavorites(animate)
         renderApps(searchBox.text?.toString().orEmpty(), animate)
