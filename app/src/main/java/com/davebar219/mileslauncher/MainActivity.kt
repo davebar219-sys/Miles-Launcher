@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3.2 — fast swipe profiles and animated Miles robot edition.
+// Miles Launcher V3.3 — futuristic animated identity, fast swipe profiles, and Miles robot edition.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -287,7 +287,7 @@ class MainActivity : Activity() {
         }
 
         logoView = MilesLogoView(this).apply {
-            contentDescription = "Miles Launcher logo"
+            contentDescription = "Animated futuristic Miles monogram"
         }
 
         val titleColumn = LinearLayout(this).apply {
@@ -618,7 +618,7 @@ class MainActivity : Activity() {
         }
 
         val tagline = TextView(this).apply {
-            text = "Your AI launcher. Ready when you are."
+            text = "Neural interface initializing…"
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(p.textSecondary)
@@ -1652,24 +1652,32 @@ class ProfileSwipeFrameLayout(context: Context) : FrameLayout(context) {
 
 class MilesLogoView(context: Context) : View(context) {
 
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-    }
-    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
-    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
+    private val thinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
     }
 
     private var accent = Color.rgb(34, 132, 255)
     private var accentStrong = Color.rgb(0, 91, 224)
+    private var phase = 0f
+    private var energy = 0f
+
+    private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 3600L
+        repeatCount = ValueAnimator.INFINITE
+        repeatMode = ValueAnimator.RESTART
+        addUpdateListener {
+            phase = it.animatedFraction
+            energy = 0.5f + 0.5f * kotlin.math.sin(phase * Math.PI * 2.0).toFloat()
+            invalidate()
+        }
+    }
 
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
@@ -1681,49 +1689,137 @@ class MilesLogoView(context: Context) : View(context) {
         invalidate()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!animator.isStarted) animator.start()
+    }
+
+    override fun onDetachedFromWindow() {
+        animator.cancel()
+        super.onDetachedFromWindow()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val size = min(width, height).toFloat()
         if (size <= 0f) return
+
         val cx = width / 2f
         val cy = height / 2f
-        val radius = size * 0.36f
+        val outer = size * 0.43f
+        val rotation = phase * 360f
 
-        glowPaint.color = Color.argb(38, Color.red(accent), Color.green(accent), Color.blue(accent))
-        glowPaint.setShadowLayer(size * 0.11f, 0f, size * 0.025f, accent)
-        canvas.drawCircle(cx, cy, radius * 1.08f, glowPaint)
-        glowPaint.clearShadowLayer()
+        // Ambient holographic aura.
+        fillPaint.color = Color.argb(
+            (28 + energy * 30).toInt(),
+            Color.red(accent), Color.green(accent), Color.blue(accent)
+        )
+        fillPaint.setShadowLayer(size * (0.10f + energy * 0.035f), 0f, 0f, accent)
+        canvas.drawCircle(cx, cy, outer * (0.96f + energy * 0.035f), fillPaint)
+        fillPaint.clearShadowLayer()
 
-        ringPaint.strokeWidth = size * 0.075f
-        ringPaint.color = accent
-        val ring = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-        canvas.drawArc(ring, 24f, 286f, false, ringPaint)
+        // Counter-rotating segmented energy rings.
+        strokePaint.strokeWidth = size * 0.034f
+        strokePaint.color = Color.argb(220, Color.red(accent), Color.green(accent), Color.blue(accent))
+        val outerRect = RectF(cx - outer, cy - outer, cx + outer, cy + outer)
+        canvas.drawArc(outerRect, rotation - 82f, 108f, false, strokePaint)
+        canvas.drawArc(outerRect, rotation + 72f, 62f, false, strokePaint)
+        canvas.drawArc(outerRect, rotation + 188f, 86f, false, strokePaint)
 
-        ringPaint.color = accentStrong
-        canvas.drawArc(ring, 326f, 36f, false, ringPaint)
+        thinPaint.strokeWidth = size * 0.014f
+        thinPaint.color = Color.argb(145, 135, 225, 255)
+        val innerRing = outer * 0.82f
+        val innerRect = RectF(cx - innerRing, cy - innerRing, cx + innerRing, cy + innerRing)
+        canvas.drawArc(innerRect, -rotation * 0.72f, 142f, false, thinPaint)
+        canvas.drawArc(innerRect, 196f - rotation * 0.72f, 104f, false, thinPaint)
 
-        markPaint.strokeWidth = size * 0.095f
-        markPaint.color = Color.WHITE
-        markPaint.setShadowLayer(size * 0.025f, 0f, size * 0.012f, Color.argb(120, 0, 0, 0))
-        val path = Path().apply {
-            moveTo(cx - size * 0.19f, cy + size * 0.17f)
-            lineTo(cx - size * 0.19f, cy - size * 0.16f)
-            lineTo(cx, cy + size * 0.015f)
-            lineTo(cx + size * 0.19f, cy - size * 0.16f)
-            lineTo(cx + size * 0.19f, cy + size * 0.17f)
+        // Futuristic hexagonal glass core.
+        val coreR = size * 0.305f
+        val hex = Path()
+        for (i in 0 until 6) {
+            val angle = Math.toRadians((i * 60.0) - 30.0)
+            val x = cx + coreR * kotlin.math.cos(angle).toFloat()
+            val y = cy + coreR * kotlin.math.sin(angle).toFloat()
+            if (i == 0) hex.moveTo(x, y) else hex.lineTo(x, y)
         }
-        canvas.drawPath(path, markPaint)
-        markPaint.clearShadowLayer()
+        hex.close()
 
-        dotPaint.color = Color.WHITE
-        dotPaint.setShadowLayer(size * 0.025f, 0f, 0f, accent)
-        val dotAngleRadians = Math.toRadians(42.0)
-        val dotX = cx + radius * kotlin.math.cos(dotAngleRadians).toFloat()
-        val dotY = cy + radius * kotlin.math.sin(dotAngleRadians).toFloat()
-        canvas.drawCircle(dotX, dotY, size * 0.055f, dotPaint)
-        dotPaint.clearShadowLayer()
+        fillPaint.color = Color.argb(232, 11, 24, 47)
+        fillPaint.setShadowLayer(size * 0.055f, 0f, size * 0.018f, Color.argb(180, 0, 0, 0))
+        canvas.drawPath(hex, fillPaint)
+        fillPaint.clearShadowLayer()
+
+        strokePaint.strokeWidth = size * 0.025f
+        strokePaint.color = Color.argb(235, Color.red(accent), Color.green(accent), Color.blue(accent))
+        strokePaint.setShadowLayer(size * 0.025f, 0f, 0f, accent)
+        canvas.drawPath(hex, strokePaint)
+        strokePaint.clearShadowLayer()
+
+        // Interior circuit traces.
+        thinPaint.strokeWidth = size * 0.012f
+        thinPaint.color = Color.argb(115, 105, 205, 255)
+        canvas.drawLine(cx - coreR * 0.76f, cy, cx - coreR * 0.50f, cy, thinPaint)
+        canvas.drawLine(cx + coreR * 0.50f, cy, cx + coreR * 0.76f, cy, thinPaint)
+        canvas.drawLine(cx, cy - coreR * 0.76f, cx, cy - coreR * 0.54f, thinPaint)
+        canvas.drawCircle(cx - coreR * 0.82f, cy, size * 0.014f, fillPaint.apply { color = accent })
+        canvas.drawCircle(cx + coreR * 0.82f, cy, size * 0.014f, fillPaint)
+        canvas.drawCircle(cx, cy - coreR * 0.82f, size * 0.014f, fillPaint)
+
+        // Angular M monogram: metallic white core with blue energy edge.
+        val mPath = Path().apply {
+            moveTo(cx - size * 0.205f, cy + size * 0.18f)
+            lineTo(cx - size * 0.205f, cy - size * 0.175f)
+            lineTo(cx - size * 0.035f, cy - size * 0.015f)
+            lineTo(cx, cy + size * 0.035f)
+            lineTo(cx + size * 0.035f, cy - size * 0.015f)
+            lineTo(cx + size * 0.205f, cy - size * 0.175f)
+            lineTo(cx + size * 0.205f, cy + size * 0.18f)
+        }
+
+        strokePaint.strokeWidth = size * 0.105f
+        strokePaint.color = Color.argb(190, Color.red(accentStrong), Color.green(accentStrong), Color.blue(accentStrong))
+        strokePaint.setShadowLayer(size * (0.035f + energy * 0.025f), 0f, 0f, accent)
+        canvas.drawPath(mPath, strokePaint)
+        strokePaint.clearShadowLayer()
+
+        strokePaint.strokeWidth = size * 0.066f
+        strokePaint.color = Color.rgb(235, 246, 255)
+        canvas.drawPath(mPath, strokePaint)
+
+        thinPaint.strokeWidth = size * 0.014f
+        thinPaint.color = Color.argb(220, 135, 230, 255)
+        canvas.drawPath(mPath, thinPaint)
+
+        // Hidden Miles face: eyes live inside the M and pulse subtly.
+        val blink = phase > 0.76f && phase < 0.80f
+        val eyeHeight = if (blink) size * 0.010f else size * (0.025f + energy * 0.006f)
+        fillPaint.color = Color.rgb(140, 235, 255)
+        fillPaint.setShadowLayer(size * 0.030f, 0f, 0f, accent)
+        canvas.drawRoundRect(
+            RectF(cx - size * 0.088f, cy + size * 0.075f - eyeHeight / 2f,
+                cx - size * 0.030f, cy + size * 0.075f + eyeHeight / 2f),
+            eyeHeight, eyeHeight, fillPaint
+        )
+        canvas.drawRoundRect(
+            RectF(cx + size * 0.030f, cy + size * 0.075f - eyeHeight / 2f,
+                cx + size * 0.088f, cy + size * 0.075f + eyeHeight / 2f),
+            eyeHeight, eyeHeight, fillPaint
+        )
+        fillPaint.clearShadowLayer()
+
+        // Orbiting data nodes.
+        for (i in 0 until 3) {
+            val a = Math.toRadians((rotation + i * 120f).toDouble())
+            val nodeX = cx + outer * kotlin.math.cos(a).toFloat()
+            val nodeY = cy + outer * kotlin.math.sin(a).toFloat()
+            fillPaint.color = if (i == 0) Color.WHITE else Color.rgb(120, 225, 255)
+            fillPaint.setShadowLayer(size * 0.022f, 0f, 0f, accent)
+            canvas.drawCircle(nodeX, nodeY, size * if (i == 0) 0.027f else 0.018f, fillPaint)
+            fillPaint.clearShadowLayer()
+        }
     }
 }
+
 
 class MilesRobotView(context: Context) : View(context) {
 
