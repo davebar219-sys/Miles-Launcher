@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3.0 — blue AI dashboard edition.
+// Miles Launcher V3.1 — animated Miles robot edition.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -82,7 +82,7 @@ class MainActivity : Activity() {
     private lateinit var assistantGreeting: TextView
     private lateinit var assistantStatus: TextView
     private lateinit var voiceButton: TextView
-    private lateinit var assistantLogo: MilesLogoView
+    private lateinit var assistantLogo: MilesRobotView
 
     private var allApps: List<ResolveInfo> = emptyList()
     private var workMode = true
@@ -334,8 +334,8 @@ class MainActivity : Activity() {
             }
         }
 
-        assistantLogo = MilesLogoView(this).apply {
-            contentDescription = "Miles AI assistant"
+        assistantLogo = MilesRobotView(this).apply {
+            contentDescription = "Animated Miles AI assistant"
         }
 
         val assistantText = LinearLayout(this).apply {
@@ -371,7 +371,7 @@ class MainActivity : Activity() {
             }
         }
 
-        assistantCard.addView(assistantLogo, squareParams(62))
+        assistantCard.addView(assistantLogo, squareParams(92))
         assistantCard.addView(assistantText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         assistantCard.addView(voiceButton, squareParams(50))
 
@@ -685,10 +685,7 @@ class MainActivity : Activity() {
             .translationY(0f)
             .setDuration(420L)
             .start()
-        assistantLogo.animate()
-            .rotationBy(360f)
-            .setDuration(850L)
-            .start()
+        assistantLogo.playGreeting()
         pulseVoiceButton()
     }
 
@@ -1230,7 +1227,7 @@ class MainActivity : Activity() {
 
     private fun startVoiceInput() {
         assistantStatus.text = "Listening…"
-        assistantLogo.animate().rotationBy(180f).setDuration(420L).start()
+        assistantLogo.setListening(true)
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
@@ -1240,6 +1237,7 @@ class MainActivity : Activity() {
         try {
             startActivityForResult(intent, REQUEST_VOICE)
         } catch (_: ActivityNotFoundException) {
+            assistantLogo.setListening(false)
             assistantStatus.text = "Voice recognition isn't available on this phone."
             Toast.makeText(this, "Voice recognition isn't available.", Toast.LENGTH_SHORT).show()
         }
@@ -1249,14 +1247,18 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_VOICE) return
         if (resultCode != RESULT_OK) {
+            assistantLogo.setListening(false)
             assistantStatus.text = "Tap to talk • Hold to open ChatGPT"
             return
         }
         val heard = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
         if (heard.isBlank()) {
+            assistantLogo.setListening(false)
             assistantStatus.text = "I didn't catch that. Tap and try again."
             return
         }
+        assistantLogo.setListening(false)
+        assistantLogo.playReaction()
         assistantGreeting.text = "You said: “$heard”"
         handleMilesCommand(heard)
     }
@@ -1566,3 +1568,140 @@ class MilesLogoView(context: Context) : View(context) {
         dotPaint.clearShadowLayer()
     }
 }
+
+class MilesRobotView(context: Context) : View(context) {
+
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private var accent = Color.rgb(34, 132, 255)
+    private var accentStrong = Color.rgb(0, 91, 224)
+    private var phase = 0f
+    private var listening = false
+    private var reactionBoost = 0f
+
+    private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 2600L
+        repeatCount = ValueAnimator.INFINITE
+        repeatMode = ValueAnimator.RESTART
+        addUpdateListener {
+            phase = it.animatedFraction
+            if (reactionBoost > 0f) reactionBoost = (reactionBoost - 0.035f).coerceAtLeast(0f)
+            invalidate()
+        }
+    }
+
+    init {
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
+    }
+
+    fun setAccentColors(primary: Int, strong: Int) {
+        accent = primary
+        accentStrong = strong
+        invalidate()
+    }
+
+    fun setListening(value: Boolean) {
+        listening = value
+        reactionBoost = if (value) 1f else 0.35f
+        invalidate()
+    }
+
+    fun playGreeting() {
+        reactionBoost = 1f
+        animate().translationY(-height * 0.06f).setDuration(180L).withEndAction {
+            animate().translationY(0f).setDuration(260L).start()
+        }.start()
+    }
+
+    fun playReaction() {
+        reactionBoost = 1f
+        animate().scaleX(1.08f).scaleY(1.08f).setDuration(140L).withEndAction {
+            animate().scaleX(1f).scaleY(1f).setDuration(220L).start()
+        }.start()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!animator.isStarted) animator.start()
+    }
+
+    override fun onDetachedFromWindow() {
+        animator.cancel()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val size = min(width, height).toFloat()
+        if (size <= 0f) return
+        val cx = width / 2f
+        val bob = kotlin.math.sin(phase * Math.PI * 2.0).toFloat() * size * 0.025f
+        val cy = height / 2f + bob
+        val pulse = if (listening) 0.72f + 0.28f * kotlin.math.sin(phase * Math.PI * 4.0).toFloat() else 0.35f
+
+        fillPaint.color = Color.argb((38 + pulse * 42).toInt(), Color.red(accent), Color.green(accent), Color.blue(accent))
+        fillPaint.setShadowLayer(size * (0.10f + pulse * 0.035f), 0f, 0f, accent)
+        canvas.drawCircle(cx, cy, size * (0.42f + pulse * 0.025f), fillPaint)
+        fillPaint.clearShadowLayer()
+
+        strokePaint.strokeWidth = size * 0.025f
+        strokePaint.color = Color.argb(150, Color.red(accent), Color.green(accent), Color.blue(accent))
+        val ringR = size * 0.43f
+        canvas.drawArc(RectF(cx-ringR, cy-ringR, cx+ringR, cy+ringR), -70f + phase*80f, 235f, false, strokePaint)
+
+        val body = RectF(cx-size*0.20f, cy+size*0.10f, cx+size*0.20f, cy+size*0.34f)
+        fillPaint.color = Color.rgb(225, 234, 246)
+        canvas.drawRoundRect(body, size*0.10f, size*0.10f, fillPaint)
+        strokePaint.color = Color.argb(190, Color.red(accentStrong), Color.green(accentStrong), Color.blue(accentStrong))
+        strokePaint.strokeWidth = size*0.025f
+        canvas.drawRoundRect(body, size*0.10f, size*0.10f, strokePaint)
+
+        val head = RectF(cx-size*0.27f, cy-size*0.25f, cx+size*0.27f, cy+size*0.13f)
+        fillPaint.color = Color.rgb(240, 246, 255)
+        fillPaint.setShadowLayer(size*0.045f, 0f, size*0.018f, Color.argb(100, 0, 0, 0))
+        canvas.drawRoundRect(head, size*0.15f, size*0.15f, fillPaint)
+        fillPaint.clearShadowLayer()
+        strokePaint.color = accent
+        strokePaint.strokeWidth = size*0.028f
+        canvas.drawRoundRect(head, size*0.15f, size*0.15f, strokePaint)
+
+        val face = RectF(cx-size*0.20f, cy-size*0.17f, cx+size*0.20f, cy+size*0.045f)
+        fillPaint.color = Color.rgb(12, 26, 48)
+        canvas.drawRoundRect(face, size*0.09f, size*0.09f, fillPaint)
+
+        val blinkWindow = phase > 0.78f && phase < 0.82f
+        val eyeH = if (blinkWindow) size*0.012f else size*0.055f
+        fillPaint.color = Color.rgb(118, 224, 255)
+        fillPaint.setShadowLayer(size*0.035f, 0f, 0f, accent)
+        canvas.drawRoundRect(RectF(cx-size*0.125f, cy-size*0.095f-eyeH/2, cx-size*0.055f, cy-size*0.095f+eyeH/2), eyeH, eyeH, fillPaint)
+        canvas.drawRoundRect(RectF(cx+size*0.055f, cy-size*0.095f-eyeH/2, cx+size*0.125f, cy-size*0.095f+eyeH/2), eyeH, eyeH, fillPaint)
+        fillPaint.clearShadowLayer()
+
+        strokePaint.color = Color.rgb(116, 205, 255)
+        strokePaint.strokeWidth = size*0.018f
+        val smile = RectF(cx-size*0.075f, cy-size*0.055f, cx+size*0.075f, cy+size*0.025f)
+        canvas.drawArc(smile, 18f, 144f, false, strokePaint)
+
+        strokePaint.color = Color.rgb(210, 224, 242)
+        strokePaint.strokeWidth = size*0.07f
+        val wave = kotlin.math.sin(phase * Math.PI * 4.0).toFloat() * (0.25f + reactionBoost*0.75f)
+        canvas.drawLine(cx-size*0.20f, cy+size*0.16f, cx-size*(0.31f+0.035f*wave), cy+size*(0.06f-0.10f*wave), strokePaint)
+        canvas.drawLine(cx+size*0.20f, cy+size*0.16f, cx+size*0.31f, cy+size*0.24f, strokePaint)
+
+        fillPaint.color = accent
+        fillPaint.setShadowLayer(size*0.035f, 0f, 0f, accent)
+        canvas.drawCircle(cx, cy+size*0.22f, size*(0.035f + pulse*0.01f), fillPaint)
+        fillPaint.clearShadowLayer()
+
+        strokePaint.strokeWidth = size*0.018f
+        strokePaint.color = accent
+        canvas.drawLine(cx, cy-size*0.25f, cx, cy-size*0.33f, strokePaint)
+        fillPaint.color = Color.rgb(132, 232, 255)
+        canvas.drawCircle(cx, cy-size*0.35f, size*0.035f, fillPaint)
+    }
+}
+
