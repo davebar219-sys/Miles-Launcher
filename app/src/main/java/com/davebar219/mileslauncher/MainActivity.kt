@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3.1 — animated Miles robot edition.
+// Miles Launcher V3.2 — fast swipe profiles and animated Miles robot edition.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -28,14 +28,17 @@ import android.speech.RecognizerIntent
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.TextUtils
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.inputmethod.InputMethodManager
+import android.view.animation.DecelerateInterpolator
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -83,6 +86,8 @@ class MainActivity : Activity() {
     private lateinit var assistantStatus: TextView
     private lateinit var voiceButton: TextView
     private lateinit var assistantLogo: MilesRobotView
+
+    private var profileTransitionRunning = false
 
     private var allApps: List<ResolveInfo> = emptyList()
     private var workMode = true
@@ -256,8 +261,10 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi() {
-        rootFrame = FrameLayout(this).apply {
+        rootFrame = ProfileSwipeFrameLayout(this).apply {
             setBackgroundColor(palette.background)
+            onSwipeLeft = { switchMode(true, swipeDirection = -1) }
+            onSwipeRight = { switchMode(false, swipeDirection = 1) }
         }
 
         launcherRoot = LinearLayout(this).apply {
@@ -704,14 +711,90 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun switchMode(toWorkMode: Boolean) {
-        if (workMode == toWorkMode) return
-        workMode = toWorkMode
-        prefs.edit().putBoolean(KEY_WORK_MODE, workMode).apply()
-        searchBox.setText("")
-        scrollView.scrollTo(0, 0)
-        refreshEverything(animate = true)
-        logoView.animate().rotationBy(360f).setDuration(520L).start()
+    private fun switchMode(toWorkMode: Boolean, swipeDirection: Int = if (toWorkMode) -1 else 1) {
+        if (workMode == toWorkMode || profileTransitionRunning) return
+        profileTransitionRunning = true
+        hideKeyboard()
+
+        val direction = if (swipeDirection < 0) -1 else 1
+        val distance = (resources.displayMetrics.widthPixels * 0.14f).coerceAtLeast(dp(44).toFloat())
+        val outX = direction * distance
+        val enterX = -direction * distance
+        val interpolator = DecelerateInterpolator()
+
+        contentCard.animate().cancel()
+        modeTitle.animate().cancel()
+        modeSubtitle.animate().cancel()
+
+        contentCard.animate()
+            .translationX(outX)
+            .alpha(0.18f)
+            .setDuration(PROFILE_HALF_TRANSITION_MS)
+            .setInterpolator(interpolator)
+            .withEndAction {
+                workMode = toWorkMode
+                prefs.edit().putBoolean(KEY_WORK_MODE, workMode).apply()
+                if (searchBox.text?.isNotEmpty() == true) searchBox.setText("")
+                scrollView.scrollTo(0, 0)
+                refreshEverything(animate = false)
+
+                contentCard.translationX = enterX
+                contentCard.alpha = 0.18f
+                modeTitle.translationX = enterX * 0.22f
+                modeSubtitle.translationX = enterX * 0.16f
+                modeTitle.alpha = 0.35f
+                modeSubtitle.alpha = 0.35f
+
+                assistantGreeting.text = if (workMode) "Work mode activated." else "Welcome home."
+                assistantStatus.text = if (workMode) {
+                    "Miles is focused and ready."
+                } else {
+                    "Miles is ready for your personal apps."
+                }
+                assistantLogo.playProfileSwitch(direction)
+                assistantCard.animate()
+                    .scaleX(1.018f)
+                    .scaleY(1.018f)
+                    .setDuration(70L)
+                    .withEndAction {
+                        assistantCard.animate().scaleX(1f).scaleY(1f).setDuration(100L).start()
+                    }
+                    .start()
+
+                contentCard.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(PROFILE_HALF_TRANSITION_MS)
+                    .setInterpolator(interpolator)
+                    .withEndAction {
+                        profileTransitionRunning = false
+                        restoreAssistantPromptSoon()
+                    }
+                    .start()
+                modeTitle.animate().translationX(0f).alpha(1f).setDuration(PROFILE_HALF_TRANSITION_MS).start()
+                modeSubtitle.animate().translationX(0f).alpha(1f).setDuration(PROFILE_HALF_TRANSITION_MS).start()
+            }
+            .start()
+    }
+
+    private fun restoreAssistantPromptSoon() {
+        assistantCard.removeCallbacks(restoreAssistantPromptRunnable)
+        assistantCard.postDelayed(restoreAssistantPromptRunnable, 1_250L)
+    }
+
+    private val restoreAssistantPromptRunnable = Runnable {
+        if (!::assistantGreeting.isInitialized) return@Runnable
+        assistantGreeting.text = greetingForCurrentTime()
+        assistantStatus.text = "Tap to talk • Hold to open ChatGPT"
+    }
+
+    private fun greetingForCurrentTime(): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        return when (hour) {
+            in 5..11 -> "Good morning. I'm Miles."
+            in 12..16 -> "Good afternoon. I'm Miles."
+            else -> "Good evening. I'm Miles."
+        }
     }
 
     private fun refreshEverything(animate: Boolean) {
@@ -1491,6 +1574,79 @@ class MainActivity : Activity() {
         private const val SORT_REVERSE = 1
         private const val SORT_FAVORITES_FIRST = 2
         private const val REQUEST_VOICE = 7301
+        private const val PROFILE_HALF_TRANSITION_MS = 75L
+    }
+}
+
+class ProfileSwipeFrameLayout(context: Context) : FrameLayout(context) {
+
+    var onSwipeLeft: (() -> Unit)? = null
+    var onSwipeRight: (() -> Unit)? = null
+
+    private var downX = 0f
+    private var downY = 0f
+    private var interceptingSwipe = false
+    private var swipeTriggered = false
+    private val touchSlop = (24f * resources.displayMetrics.density)
+    private val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(event: MotionEvent): Boolean = true
+
+        override fun onFling(
+            first: MotionEvent?,
+            second: MotionEvent,
+            velocityX: Float,
+            velocityY: Float
+        ): Boolean {
+            val start = first ?: return false
+            val dx = second.x - start.x
+            val dy = second.y - start.y
+            if (kotlin.math.abs(dx) < touchSlop * 2f) return false
+            if (kotlin.math.abs(dx) <= kotlin.math.abs(dy) * 1.2f) return false
+            if (kotlin.math.abs(velocityX) < 280f) return false
+            swipeTriggered = true
+            if (dx < 0f) onSwipeLeft?.invoke() else onSwipeRight?.invoke()
+            return true
+        }
+    })
+
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                interceptingSwipe = false
+                swipeTriggered = false
+                detector.onTouchEvent(event)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - downX
+                val dy = event.y - downY
+                if (kotlin.math.abs(dx) > touchSlop && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
+                    interceptingSwipe = true
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> interceptingSwipe = false
+        }
+        return super.onInterceptTouchEvent(event)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val handled = detector.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP && !swipeTriggered) {
+            val dx = event.x - downX
+            val dy = event.y - downY
+            if (kotlin.math.abs(dx) > touchSlop * 2.2f && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.2f) {
+                swipeTriggered = true
+                if (dx < 0f) onSwipeLeft?.invoke() else onSwipeRight?.invoke()
+            }
+        }
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            interceptingSwipe = false
+            parent?.requestDisallowInterceptTouchEvent(false)
+        }
+        return handled || swipeTriggered || interceptingSwipe || super.onTouchEvent(event)
     }
 }
 
@@ -1622,6 +1778,20 @@ class MilesRobotView(context: Context) : View(context) {
         animate().scaleX(1.08f).scaleY(1.08f).setDuration(140L).withEndAction {
             animate().scaleX(1f).scaleY(1f).setDuration(220L).start()
         }.start()
+    }
+
+    fun playProfileSwitch(direction: Int) {
+        reactionBoost = 1f
+        val look = if (direction < 0) -width * 0.055f else width * 0.055f
+        animate().cancel()
+        animate()
+            .translationX(look)
+            .rotation(if (direction < 0) -3.5f else 3.5f)
+            .setDuration(70L)
+            .withEndAction {
+                animate().translationX(0f).rotation(0f).setDuration(100L).start()
+            }
+            .start()
     }
 
     override fun onAttachedToWindow() {
