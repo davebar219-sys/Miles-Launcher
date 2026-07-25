@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3.5 — Galaxy Z Fold 6 adaptive dock and upgraded Miles robot.
+// Miles Launcher V3.6 — Step 2: corrected Fold 6 floating app bar and fast profile switching.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -9,6 +9,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.res.Configuration
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ResolveInfo
@@ -52,6 +53,7 @@ import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 import kotlin.math.min
 
 @Suppress("DEPRECATION")
@@ -94,6 +96,11 @@ class MainActivity : Activity() {
     private lateinit var navSettings: TextView
 
     private var profileTransitionRunning = false
+
+    private var systemInsetLeft = 0
+    private var systemInsetTop = 0
+    private var systemInsetRight = 0
+    private var systemInsetBottom = 0
 
     private var allApps: List<ResolveInfo> = emptyList()
     private var workMode = true
@@ -175,8 +182,19 @@ class MainActivity : Activity() {
         loadPreferences()
         allApps = loadLaunchableApps()
         buildUi()
+        applyWindowInsets()
         refreshEverything(animate = false)
         if (startupEnabled) showStartupExperience() else revealLauncherImmediately()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!::rootFrame.isInitialized) return
+        rootFrame.post {
+            applyResponsiveLayout()
+            renderFavorites(animate = false)
+            renderApps(searchBox.text?.toString().orEmpty(), animate = false)
+        }
     }
 
     override fun onResume() {
@@ -210,6 +228,116 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun applyWindowInsets() {
+        if (!::rootFrame.isInitialized) return
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+        }
+
+        rootFrame.setOnApplyWindowInsetsListener { _, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val statusAndCutout = insets.getInsets(
+                    WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()
+                )
+                val navigation = insets.getInsets(WindowInsets.Type.navigationBars())
+                systemInsetLeft = max(statusAndCutout.left, navigation.left)
+                systemInsetTop = statusAndCutout.top
+                systemInsetRight = max(statusAndCutout.right, navigation.right)
+                systemInsetBottom = navigation.bottom
+            } else {
+                @Suppress("DEPRECATION")
+                systemInsetLeft = insets.systemWindowInsetLeft
+                @Suppress("DEPRECATION")
+                systemInsetTop = insets.systemWindowInsetTop
+                @Suppress("DEPRECATION")
+                systemInsetRight = insets.systemWindowInsetRight
+                @Suppress("DEPRECATION")
+                systemInsetBottom = insets.systemWindowInsetBottom
+            }
+
+            applyResponsiveLayout()
+            insets
+        }
+        rootFrame.requestApplyInsets()
+    }
+
+    private fun applyResponsiveLayout() {
+        if (!::launcherRoot.isInitialized) return
+
+        val innerDisplay = isInnerDisplay()
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val dockHeight = dp(
+            when {
+                innerDisplay && landscape -> 64
+                innerDisplay -> 68
+                landscape -> 60
+                else -> 64
+            }
+        )
+        val dockSideMargin = dp(if (innerDisplay) 24 else 12)
+        val dockBottomGap = dp(if (systemInsetBottom > 0) 6 else 10)
+
+        // Only system top/side insets belong on the launcher root. Reserving the dock and
+        // navigation inset here compressed the whole page and created the oversized bottom gap.
+        launcherRoot.setPadding(
+            systemInsetLeft + dp(14),
+            systemInsetTop + dp(10),
+            systemInsetRight + dp(14),
+            dp(8)
+        )
+
+        if (::bottomDock.isInitialized) {
+            val frameWidth = rootFrame.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+            val availableWidth = (frameWidth - systemInsetLeft - systemInsetRight - dockSideMargin * 2)
+                .coerceAtLeast(dp(280))
+            val maximumDockWidth = when {
+                innerDisplay && landscape -> dp(660)
+                innerDisplay -> dp(620)
+                else -> availableWidth
+            }
+            val targetWidth = min(availableWidth, maximumDockWidth)
+
+            val params = (bottomDock.layoutParams as? FrameLayout.LayoutParams)
+                ?: FrameLayout.LayoutParams(targetWidth, dockHeight)
+            params.width = targetWidth
+            params.height = dockHeight
+            params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            params.leftMargin = systemInsetLeft
+            params.rightMargin = systemInsetRight
+            params.bottomMargin = systemInsetBottom + dockBottomGap
+            bottomDock.layoutParams = params
+            bottomDock.bringToFront()
+        }
+
+        if (::scrollView.isInitialized) {
+            // The bar overlays the page. Reserve exactly its visual footprint inside the scroller,
+            // including Samsung's navigation/gesture inset, so the final app row clears the bar.
+            val bottomClearance = systemInsetBottom + dockBottomGap + dockHeight + dp(14)
+            scrollView.setPadding(0, 0, 0, bottomClearance)
+            scrollView.clipToPadding = false
+            scrollView.isScrollbarFadingEnabled = true
+        }
+
+        if (::favoritesGrid.isInitialized) favoritesGrid.columnCount = resolvedGridColumns()
+        if (::appGrid.isInitialized) appGrid.columnCount = resolvedGridColumns()
+    }
+
+    private fun isInnerDisplay(): Boolean = resources.configuration.smallestScreenWidthDp >= 600
+
+    private fun resolvedGridColumns(): Int {
+        val configuration = resources.configuration
+        val widthDp = configuration.screenWidthDp.takeIf { it > 0 }
+            ?: (resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt()
+        val base = when {
+            widthDp >= 840 -> 9
+            widthDp >= 600 -> 7
+            else -> 5
+        }
+        // The existing 3–5 column preference now acts as a density adjustment.
+        return (base + (gridColumns - 4)).coerceIn(4, 10)
+    }
+
     private fun scheduleSystemBarUpdate() {
         if (!::rootFrame.isInitialized) return
         rootFrame.post { configureSystemBars() }
@@ -227,7 +355,7 @@ class MainActivity : Activity() {
         }
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(true)
+            window.setDecorFitsSystemWindows(false)
             val controller = decorView.windowInsetsController ?: return
             val lightAppearance = if (darkTheme) {
                 0
@@ -275,7 +403,7 @@ class MainActivity : Activity() {
 
         launcherRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(22), dp(14), dp(8))
+            setPadding(dp(14), dp(22), dp(14), dp(8)) // updated by applyWindowInsets()
             alpha = 0f
             scaleX = 0.985f
             scaleY = 0.985f
@@ -582,7 +710,7 @@ class MainActivity : Activity() {
         }
 
         scrollView.clipToPadding = false
-        scrollView.setPadding(0, 0, 0, dp(42))
+        scrollView.setPadding(0, 0, 0, dp(12))
         contentCard.addView(scrollView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         fun dockItem(symbol: String, label: String, action: () -> Unit): TextView = TextView(this).apply {
@@ -603,11 +731,13 @@ class MainActivity : Activity() {
 
         bottomDock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(7), dp(4), dp(7), dp(4))
-            elevation = dp(8).toFloat()
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            elevation = dp(12).toFloat()
             clipChildren = false
             clipToPadding = false
+            isClickable = true
+            isFocusable = true
         }
         navHome = dockItem("⌂", "Home") { switchMode(false) }
         navFavorites = dockItem("☆", "Favorites") {
@@ -620,7 +750,7 @@ class MainActivity : Activity() {
         navAi = dockItem("✦", "AI Tools") { openChatGpt() }
         navSettings = dockItem("⚙", "Settings") { showSettingsDialog() }
 
-        val dockItemHeight = if (resources.configuration.smallestScreenWidthDp >= 600) dp(66) else dp(62)
+        val dockItemHeight = if (resources.configuration.smallestScreenWidthDp >= 600) dp(58) else dp(54)
         bottomDock.addView(navHome, LinearLayout.LayoutParams(0, dockItemHeight, 1f))
         bottomDock.addView(navFavorites, LinearLayout.LayoutParams(0, dockItemHeight, 1f))
         bottomDock.addView(navMiles, LinearLayout.LayoutParams(0, dockItemHeight, 1.12f))
@@ -634,21 +764,24 @@ class MainActivity : Activity() {
                 topMargin = dp(11)
             }
         )
-        launcherRoot.addView(
-            bottomDock,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                if (resources.configuration.smallestScreenWidthDp >= 600) dp(74) else dp(70)
-            ).apply {
-                topMargin = dp(8)
-            }
-        )
-
         rootFrame.addView(
             CyberBackdropView(this),
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
-        rootFrame.addView(launcherRoot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        rootFrame.addView(
+            launcherRoot,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        rootFrame.addView(
+            bottomDock,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                if (resources.configuration.smallestScreenWidthDp >= 600) dp(68) else dp(64),
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply {
+                bottomMargin = dp(10)
+            }
+        )
         setContentView(rootFrame)
     }
 
@@ -780,19 +913,20 @@ class MainActivity : Activity() {
         hideKeyboard()
 
         val direction = if (swipeDirection < 0) -1 else 1
-        val distance = (resources.displayMetrics.widthPixels * 0.14f).coerceAtLeast(dp(44).toFloat())
-        val outX = direction * distance
-        val enterX = -direction * distance
-        val interpolator = DecelerateInterpolator()
+        val travel = direction * dp(14).toFloat()
+        val interpolator = DecelerateInterpolator(1.6f)
 
         contentCard.animate().cancel()
         modeTitle.animate().cancel()
         modeSubtitle.animate().cancel()
+        assistantCard.animate().cancel()
 
+        // A short single-stage fade makes the synchronous grid refresh feel immediate,
+        // without the old long slide-out / slide-in sequence.
         contentCard.animate()
-            .translationX(outX)
-            .alpha(0.18f)
-            .setDuration(PROFILE_HALF_TRANSITION_MS)
+            .translationX(travel)
+            .alpha(0.58f)
+            .setDuration(PROFILE_OUT_MS)
             .setInterpolator(interpolator)
             .withEndAction {
                 workMode = toWorkMode
@@ -801,12 +935,10 @@ class MainActivity : Activity() {
                 scrollView.scrollTo(0, 0)
                 refreshEverything(animate = false)
 
-                contentCard.translationX = enterX
-                contentCard.alpha = 0.18f
-                modeTitle.translationX = enterX * 0.22f
-                modeSubtitle.translationX = enterX * 0.16f
-                modeTitle.alpha = 0.35f
-                modeSubtitle.alpha = 0.35f
+                contentCard.translationX = -travel * 0.55f
+                contentCard.alpha = 0.72f
+                modeTitle.translationX = -travel * 0.18f
+                modeSubtitle.translationX = -travel * 0.12f
 
                 assistantGreeting.text = if (workMode) "Work mode activated." else "Welcome home."
                 assistantStatus.text = if (workMode) {
@@ -815,27 +947,29 @@ class MainActivity : Activity() {
                     "Miles is ready for your personal apps."
                 }
                 assistantLogo.playProfileSwitch(direction)
-                assistantCard.animate()
-                    .scaleX(1.018f)
-                    .scaleY(1.018f)
-                    .setDuration(70L)
-                    .withEndAction {
-                        assistantCard.animate().scaleX(1f).scaleY(1f).setDuration(100L).start()
-                    }
-                    .start()
 
                 contentCard.animate()
                     .translationX(0f)
                     .alpha(1f)
-                    .setDuration(PROFILE_HALF_TRANSITION_MS)
+                    .setDuration(PROFILE_IN_MS)
                     .setInterpolator(interpolator)
                     .withEndAction {
                         profileTransitionRunning = false
                         restoreAssistantPromptSoon()
                     }
                     .start()
-                modeTitle.animate().translationX(0f).alpha(1f).setDuration(PROFILE_HALF_TRANSITION_MS).start()
-                modeSubtitle.animate().translationX(0f).alpha(1f).setDuration(PROFILE_HALF_TRANSITION_MS).start()
+                modeTitle.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(PROFILE_IN_MS)
+                    .setInterpolator(interpolator)
+                    .start()
+                modeSubtitle.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(PROFILE_IN_MS)
+                    .setInterpolator(interpolator)
+                    .start()
             }
             .start()
     }
@@ -972,7 +1106,7 @@ class MainActivity : Activity() {
 
     private fun renderFavorites(animate: Boolean) {
         favoritesGrid.removeAllViews()
-        favoritesGrid.columnCount = gridColumns
+        favoritesGrid.columnCount = resolvedGridColumns()
         val favorites = getCurrentFavorites()
         val hidden = getCurrentHidden()
         val favoriteApps = allApps
@@ -989,7 +1123,7 @@ class MainActivity : Activity() {
 
     private fun renderApps(query: String, animate: Boolean) {
         appGrid.removeAllViews()
-        appGrid.columnCount = gridColumns
+        appGrid.columnCount = resolvedGridColumns()
 
         val apps = getVisibleApps(query)
         statusPill.text = if (query.isBlank()) "${apps.size} apps" else "${apps.size} found"
@@ -1103,11 +1237,12 @@ class MainActivity : Activity() {
                 .start()
         }
 
-        val spacing = dp(4)
-        val screenWidth = resources.displayMetrics.widthPixels
-        val horizontalChrome = dp(14 * 2 + 13 * 2)
-        val availableWidth = screenWidth - horizontalChrome
-        val cellWidth = ((availableWidth - spacing * 2 * gridColumns) / gridColumns).coerceAtLeast(dp(64))
+        val spacing = dp(if (compactMode) 3 else 4)
+        val columns = resolvedGridColumns()
+        val measuredGridWidth = appGrid.width.takeIf { it > 0 } ?: favoritesGrid.width.takeIf { it > 0 }
+        val fallbackWidth = resources.displayMetrics.widthPixels - systemInsetLeft - systemInsetRight - dp(54)
+        val availableWidth = (measuredGridWidth ?: fallbackWidth).coerceAtLeast(dp(320))
+        val cellWidth = ((availableWidth - spacing * 2 * columns) / columns).coerceAtLeast(dp(60))
         return tile.apply {
             layoutParams = GridLayout.LayoutParams().apply {
                 width = cellWidth
@@ -1235,7 +1370,7 @@ class MainActivity : Activity() {
     private fun showSettingsDialog() {
         val items = arrayOf(
             "Theme: ${if (darkTheme) "Dark" else "Light"}",
-            "Grid columns: $gridColumns",
+            "Grid density: ${resolvedGridColumns()} columns",
             "Icon size: $iconSizeDp dp",
             "Label size: ${labelSizeSp.toInt()} sp",
             "App labels: ${if (showLabels) "On" else "Off"}",
@@ -1287,10 +1422,10 @@ class MainActivity : Activity() {
 
     private fun chooseGridColumns() {
         val values = intArrayOf(3, 4, 5)
-        val labels = values.map { "$it columns" }.toTypedArray()
+        val labels = arrayOf("Roomy", "Balanced", "Compact")
         val checked = values.indexOf(gridColumns).coerceAtLeast(0)
         AlertDialog.Builder(this)
-            .setTitle("Grid size")
+            .setTitle("Grid density")
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 gridColumns = values[which]
                 saveAppearance()
@@ -1580,7 +1715,7 @@ class MainActivity : Activity() {
     }
 
     private fun newGrid(): GridLayout = GridLayout(this).apply {
-        columnCount = gridColumns
+        columnCount = resolvedGridColumns()
         alignmentMode = GridLayout.ALIGN_BOUNDS
         useDefaultMargins = false
         isColumnOrderPreserved = true
@@ -1668,7 +1803,8 @@ class MainActivity : Activity() {
         private const val SORT_REVERSE = 1
         private const val SORT_FAVORITES_FIRST = 2
         private const val REQUEST_VOICE = 7301
-        private const val PROFILE_HALF_TRANSITION_MS = 75L
+        private const val PROFILE_OUT_MS = 45L
+        private const val PROFILE_IN_MS = 90L
     }
 }
 
