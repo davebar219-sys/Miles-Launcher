@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3.3 — futuristic animated identity, fast swipe profiles, and Miles robot edition.
+// Miles Launcher V3.4 — neon command dashboard, aligned app grid, and futuristic bottom dock.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -86,6 +86,12 @@ class MainActivity : Activity() {
     private lateinit var assistantStatus: TextView
     private lateinit var voiceButton: TextView
     private lateinit var assistantLogo: MilesRobotView
+    private lateinit var bottomDock: LinearLayout
+    private lateinit var navHome: TextView
+    private lateinit var navFavorites: TextView
+    private lateinit var navMiles: TextView
+    private lateinit var navAi: TextView
+    private lateinit var navSettings: TextView
 
     private var profileTransitionRunning = false
 
@@ -269,7 +275,7 @@ class MainActivity : Activity() {
 
         launcherRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(22), dp(14), dp(12))
+            setPadding(dp(14), dp(22), dp(14), dp(8))
             alpha = 0f
             scaleX = 0.985f
             scaleY = 0.985f
@@ -575,7 +581,49 @@ class MainActivity : Activity() {
             addView(scrollContent)
         }
 
+        scrollView.clipToPadding = false
+        scrollView.setPadding(0, 0, 0, dp(26))
         contentCard.addView(scrollView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        fun dockItem(symbol: String, label: String, action: () -> Unit): TextView = TextView(this).apply {
+            text = "$symbol\n$label"
+            gravity = Gravity.CENTER
+            textSize = 10.5f
+            maxLines = 2
+            includeFontPadding = false
+            setPadding(dp(3), dp(6), dp(3), dp(5))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                haptic(this)
+                action()
+            }
+        }
+
+        bottomDock = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(5), dp(6), dp(5))
+            elevation = dp(8).toFloat()
+        }
+        navHome = dockItem("⌂", "Home") { switchMode(false) }
+        navFavorites = dockItem("☆", "Favorites") {
+            searchBox.setText("")
+            scrollView.smoothScrollTo(0, 0)
+        }
+        navMiles = dockItem("◉", "Miles") { startVoiceInput() }.apply {
+            textSize = 12f
+        }
+        navAi = dockItem("✦", "AI Tools") { openChatGpt() }
+        navSettings = dockItem("⚙", "Settings") { showSettingsDialog() }
+
+        bottomDock.addView(navHome, LinearLayout.LayoutParams(0, dp(58), 1f))
+        bottomDock.addView(navFavorites, LinearLayout.LayoutParams(0, dp(58), 1f))
+        bottomDock.addView(navMiles, LinearLayout.LayoutParams(0, dp(66), 1.15f).apply {
+            topMargin = -dp(8)
+        })
+        bottomDock.addView(navAi, LinearLayout.LayoutParams(0, dp(58), 1f))
+        bottomDock.addView(navSettings, LinearLayout.LayoutParams(0, dp(58), 1f))
 
         launcherRoot.addView(headerCard)
         launcherRoot.addView(
@@ -584,7 +632,17 @@ class MainActivity : Activity() {
                 topMargin = dp(11)
             }
         )
+        launcherRoot.addView(
+            bottomDock,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)).apply {
+                topMargin = dp(8)
+            }
+        )
 
+        rootFrame.addView(
+            CyberBackdropView(this),
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
         rootFrame.addView(launcherRoot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(rootFrame)
     }
@@ -808,13 +866,14 @@ class MainActivity : Activity() {
     private fun applyTheme() {
         val p = palette
         rootFrame.setBackgroundColor(p.background)
-        launcherRoot.setBackgroundColor(p.background)
-        headerCard.background = roundedDrawable(p.surface, 26, p.border, 1)
-        contentCard.background = roundedDrawable(p.surface, 26, p.border, 1)
+        launcherRoot.setBackgroundColor(Color.TRANSPARENT)
+        headerCard.background = neonPanelDrawable(p.surface, p.surfaceRaised, 26, p.accent)
+        contentCard.background = neonPanelDrawable(p.surface, p.background, 26, p.accentStrong)
+        bottomDock.background = neonPanelDrawable(p.surfaceRaised, p.background, 24, p.accent)
 
         logoView.setAccentColors(p.accent, p.accentStrong)
         assistantLogo.setAccentColors(p.accent, p.accentStrong)
-        assistantCard.background = roundedDrawable(p.surfaceRaised, 22, p.accent, 1)
+        assistantCard.background = neonPanelDrawable(p.surfaceRaised, p.accentSoft, 22, p.accent)
         assistantGreeting.setTextColor(p.textPrimary)
         assistantStatus.setTextColor(p.textSecondary)
         voiceButton.setTextColor(p.accent)
@@ -843,6 +902,18 @@ class MainActivity : Activity() {
         hiddenButton.background = roundedDrawable(p.surfaceRaised, 15, p.border, 1)
         sortButton.setTextColor(p.textPrimary)
         sortButton.background = roundedDrawable(p.surfaceRaised, 15, p.border, 1)
+
+        val dockItems = listOf(navHome, navFavorites, navMiles, navAi, navSettings)
+        dockItems.forEach {
+            it.setTextColor(p.textSecondary)
+            it.background = roundedDrawable(Color.TRANSPARENT, 16)
+        }
+        val selectedDock = if (workMode) navAi else navHome
+        selectedDock.setTextColor(p.accent)
+        selectedDock.background = roundedDrawable(p.accentSoft, 16, p.accent, 1)
+        navMiles.setTextColor(Color.WHITE)
+        navMiles.background = neonPanelDrawable(p.accentStrong, p.accentSoft, 28, p.accent)
+        navMiles.elevation = dp(7).toFloat()
 
         updateModeButtons()
     }
@@ -966,11 +1037,11 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             setPadding(dp(4), dp(if (compactMode) 7 else 10), dp(4), dp(if (compactMode) 7 else 10))
-            background = roundedDrawable(
+            background = neonPanelDrawable(
                 if (isFavoriteSection) p.accentSoft else p.surfaceRaised,
+                if (isFavoriteSection) p.surfaceRaised else p.background,
                 18,
-                if (isFavoriteSection) p.accent else p.border,
-                1
+                if (isFavoriteSection) p.accent else Color.argb(210, Color.red(p.accent), Color.green(p.accent), Color.blue(p.accent))
             )
             elevation = dp(if (isFavoriteSection) 2 else 1).toFloat()
             contentDescription = appLabel(app)
@@ -1029,13 +1100,15 @@ class MainActivity : Activity() {
 
         val spacing = dp(4)
         val screenWidth = resources.displayMetrics.widthPixels
-        val availableWidth = screenWidth - dp(84)
-        val cellWidth = (availableWidth / gridColumns).coerceAtLeast(dp(68))
+        val horizontalChrome = dp(14 * 2 + 13 * 2)
+        val availableWidth = screenWidth - horizontalChrome
+        val cellWidth = ((availableWidth - spacing * 2 * gridColumns) / gridColumns).coerceAtLeast(dp(64))
         return tile.apply {
             layoutParams = GridLayout.LayoutParams().apply {
                 width = cellWidth
                 height = ViewGroup.LayoutParams.WRAP_CONTENT
                 setMargins(spacing, spacing, spacing, spacing)
+                setGravity(Gravity.FILL_HORIZONTAL)
             }
         }
     }
@@ -1505,6 +1578,8 @@ class MainActivity : Activity() {
         columnCount = gridColumns
         alignmentMode = GridLayout.ALIGN_BOUNDS
         useDefaultMargins = false
+        isColumnOrderPreserved = true
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 
     private fun sectionTitle(): TextView = TextView(this).apply {
@@ -1524,6 +1599,20 @@ class MainActivity : Activity() {
         cornerRadius = dp(radiusDp).toFloat()
         setColor(fillColor)
         if (strokeColor != null && strokeWidthDp > 0) setStroke(dp(strokeWidthDp), strokeColor)
+    }
+
+    private fun neonPanelDrawable(
+        topColor: Int,
+        bottomColor: Int,
+        radiusDp: Int,
+        strokeColor: Int
+    ): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(topColor, bottomColor)
+    ).apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(radiusDp).toFloat()
+        setStroke(dp(1), strokeColor)
     }
 
     private fun weightedParams(leftMargin: Int = 0): LinearLayout.LayoutParams =
@@ -1647,6 +1736,45 @@ class ProfileSwipeFrameLayout(context: Context) : FrameLayout(context) {
             parent?.requestDisallowInterceptTouchEvent(false)
         }
         return handled || swipeTriggered || interceptingSwipe || super.onTouchEvent(event)
+    }
+}
+
+class CyberBackdropView(context: Context) : View(context) {
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(24, 0, 174, 255)
+        strokeWidth = resources.displayMetrics.density
+    }
+    private val nodePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(70, 0, 196, 255)
+        style = Paint.Style.FILL
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val step = 42f * resources.displayMetrics.density
+        var x = 0f
+        while (x <= width) {
+            canvas.drawLine(x, 0f, x, height.toFloat(), gridPaint)
+            x += step
+        }
+        var y = 0f
+        while (y <= height) {
+            canvas.drawLine(0f, y, width.toFloat(), y, gridPaint)
+            y += step
+        }
+        val radius = 1.5f * resources.displayMetrics.density
+        var row = 0
+        y = step
+        while (y < height) {
+            val offset = if (row % 2 == 0) step * 0.5f else step
+            x = offset
+            while (x < width) {
+                canvas.drawCircle(x, y, radius, nodePaint)
+                x += step * 2f
+            }
+            row++
+            y += step * 2f
+        }
     }
 }
 
