@@ -1,6 +1,6 @@
 package com.davebar219.mileslauncher
 
-// Miles Launcher V3.4 — neon command dashboard, aligned app grid, and futuristic bottom dock.
+// Miles Launcher V3.5 — Galaxy Z Fold 6 adaptive dock and upgraded Miles robot.
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -582,16 +582,17 @@ class MainActivity : Activity() {
         }
 
         scrollView.clipToPadding = false
-        scrollView.setPadding(0, 0, 0, dp(26))
+        scrollView.setPadding(0, 0, 0, dp(42))
         contentCard.addView(scrollView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         fun dockItem(symbol: String, label: String, action: () -> Unit): TextView = TextView(this).apply {
             text = "$symbol\n$label"
             gravity = Gravity.CENTER
-            textSize = 10.5f
+            textSize = if (resources.configuration.smallestScreenWidthDp >= 600) 11f else 9.5f
             maxLines = 2
             includeFontPadding = false
-            setPadding(dp(3), dp(6), dp(3), dp(5))
+            setLineSpacing(0f, 0.92f)
+            setPadding(dp(2), dp(4), dp(2), dp(4))
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -602,9 +603,11 @@ class MainActivity : Activity() {
 
         bottomDock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(6), dp(5), dp(6), dp(5))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(7), dp(4), dp(7), dp(4))
             elevation = dp(8).toFloat()
+            clipChildren = false
+            clipToPadding = false
         }
         navHome = dockItem("⌂", "Home") { switchMode(false) }
         navFavorites = dockItem("☆", "Favorites") {
@@ -612,18 +615,17 @@ class MainActivity : Activity() {
             scrollView.smoothScrollTo(0, 0)
         }
         navMiles = dockItem("◉", "Miles") { startVoiceInput() }.apply {
-            textSize = 12f
+            textSize = if (resources.configuration.smallestScreenWidthDp >= 600) 12f else 10.5f
         }
         navAi = dockItem("✦", "AI Tools") { openChatGpt() }
         navSettings = dockItem("⚙", "Settings") { showSettingsDialog() }
 
-        bottomDock.addView(navHome, LinearLayout.LayoutParams(0, dp(58), 1f))
-        bottomDock.addView(navFavorites, LinearLayout.LayoutParams(0, dp(58), 1f))
-        bottomDock.addView(navMiles, LinearLayout.LayoutParams(0, dp(66), 1.15f).apply {
-            topMargin = -dp(8)
-        })
-        bottomDock.addView(navAi, LinearLayout.LayoutParams(0, dp(58), 1f))
-        bottomDock.addView(navSettings, LinearLayout.LayoutParams(0, dp(58), 1f))
+        val dockItemHeight = if (resources.configuration.smallestScreenWidthDp >= 600) dp(66) else dp(62)
+        bottomDock.addView(navHome, LinearLayout.LayoutParams(0, dockItemHeight, 1f))
+        bottomDock.addView(navFavorites, LinearLayout.LayoutParams(0, dockItemHeight, 1f))
+        bottomDock.addView(navMiles, LinearLayout.LayoutParams(0, dockItemHeight, 1.12f))
+        bottomDock.addView(navAi, LinearLayout.LayoutParams(0, dockItemHeight, 1f))
+        bottomDock.addView(navSettings, LinearLayout.LayoutParams(0, dockItemHeight, 1f))
 
         launcherRoot.addView(headerCard)
         launcherRoot.addView(
@@ -634,7 +636,10 @@ class MainActivity : Activity() {
         )
         launcherRoot.addView(
             bottomDock,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(62)).apply {
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                if (resources.configuration.smallestScreenWidthDp >= 600) dp(74) else dp(70)
+            ).apply {
                 topMargin = dp(8)
             }
         )
@@ -2086,9 +2091,49 @@ class MilesRobotView(context: Context) : View(context) {
         canvas.drawLine(cx-size*0.20f, cy+size*0.16f, cx-size*(0.31f+0.035f*wave), cy+size*(0.06f-0.10f*wave), strokePaint)
         canvas.drawLine(cx+size*0.20f, cy+size*0.16f, cx+size*0.31f, cy+size*0.24f, strokePaint)
 
+        // Headset-style ear pods and a friendly waving hand make Miles read clearly at small sizes.
+        fillPaint.color = Color.rgb(205, 220, 240)
+        strokePaint.color = accent
+        strokePaint.strokeWidth = size * 0.018f
+        val leftEar = RectF(cx-size*0.315f, cy-size*0.135f, cx-size*0.255f, cy-size*0.005f)
+        val rightEar = RectF(cx+size*0.255f, cy-size*0.135f, cx+size*0.315f, cy-size*0.005f)
+        canvas.drawRoundRect(leftEar, size*0.03f, size*0.03f, fillPaint)
+        canvas.drawRoundRect(rightEar, size*0.03f, size*0.03f, fillPaint)
+        canvas.drawRoundRect(leftEar, size*0.03f, size*0.03f, strokePaint)
+        canvas.drawRoundRect(rightEar, size*0.03f, size*0.03f, strokePaint)
+
+        val handX = cx - size*(0.33f+0.035f*wave)
+        val handY = cy + size*(0.035f-0.10f*wave)
+        fillPaint.color = Color.rgb(232, 241, 252)
+        canvas.drawCircle(handX, handY, size*0.052f, fillPaint)
+        strokePaint.color = accent
+        strokePaint.strokeWidth = size*0.012f
+        canvas.drawCircle(handX, handY, size*0.052f, strokePaint)
+        for (i in -2..2) {
+            val dx = i * size * 0.021f
+            canvas.drawLine(handX + dx, handY-size*0.035f, handX + dx*1.15f, handY-size*0.085f, strokePaint)
+        }
+
+        // Illuminated chest badge with a tiny M monogram.
+        fillPaint.color = Color.rgb(10, 30, 58)
+        canvas.drawCircle(cx, cy+size*0.22f, size*0.064f, fillPaint)
+        strokePaint.color = accent
+        strokePaint.strokeWidth = size*0.014f
+        canvas.drawCircle(cx, cy+size*0.22f, size*0.064f, strokePaint)
+        val badgeM = Path().apply {
+            moveTo(cx-size*0.032f, cy+size*0.242f)
+            lineTo(cx-size*0.032f, cy+size*0.198f)
+            lineTo(cx, cy+size*0.225f)
+            lineTo(cx+size*0.032f, cy+size*0.198f)
+            lineTo(cx+size*0.032f, cy+size*0.242f)
+        }
+        strokePaint.strokeWidth = size*0.012f
+        strokePaint.color = Color.rgb(170, 240, 255)
+        canvas.drawPath(badgeM, strokePaint)
+
         fillPaint.color = accent
         fillPaint.setShadowLayer(size*0.035f, 0f, 0f, accent)
-        canvas.drawCircle(cx, cy+size*0.22f, size*(0.035f + pulse*0.01f), fillPaint)
+        canvas.drawCircle(cx, cy+size*0.22f, size*(0.018f + pulse*0.006f), fillPaint)
         fillPaint.clearShadowLayer()
 
         strokePaint.strokeWidth = size*0.018f
